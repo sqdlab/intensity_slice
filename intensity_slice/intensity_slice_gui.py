@@ -7,6 +7,7 @@ Created on May 25, 2013
 # version 150
 import wx
 import numpy as np
+import pandas as pd
 import copy
 import os
 import types
@@ -27,15 +28,13 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 from wxwidgets import DragListCtrl, EVT_DRAGLIST, SliderGroup, Param
-
-# need to get rid of uqtools so this is going to be commented out (actually it seems to be unused) L
-#from uqtools import CSVStore
         
 # used to look for memory leak
 #import gc
 #import objgraph
 
 global usage_ref
+global filenameglobal
         
 class CoordSliderGroup(SliderGroup):
     def __init__(self, parent, label, param, data, id_):
@@ -55,7 +54,7 @@ class CoordSliderGroup(SliderGroup):
     
     def set_knob(self, value):
         self.slider.SetValue(value)
-        self.text.SetValue("{0:.6e}".format(self._data_slice[value]))
+        self.text.SetValue("{0:.6}".format(self._data_slice[value]))
 
 class CoordSliderPanel(ScrolledPanel):
     def __init__(self, parent, size, **kwargs):
@@ -1071,28 +1070,37 @@ class MainFrame(wx.Frame):
             raise RuntimeError('Data with less than 1 coordinate is currently '
                                'not supported')
         
-        # fill in start, end, and size values for each coordinate dimension
         file_lines = f.readlines()
         numLinesOfData = len(file_lines)
         
         for i in range(0,numLinesOfData):
-            file_lines[i] = file_lines[i].split()
+            # check if this really needs to be there
+            if len(file_lines[i].split())==(len(coordinates)+len(values)):
+                file_lines[i] = file_lines[i].split()    
+            else:
+                file_lines[i] = [np.nan]*(len(coordinates)+len(values))
+        file_lines = [next_]+file_lines
+        data=pd.DataFrame(file_lines)
+        numLinesOfData+=1
+        
+        # this is not meaningful for NaN data e.g. labels
+        # labels should be stored and replaced with indices in the data!
         
         for i in range(0, len(coordinates)):
             # NOTE potential precision issues if you evaluate an int as a float
-            coordinates[i]['start'] = float(next_[i])
-            coordinates[i]['end'] = float(file_lines[-1][i])
+            coordinates[i]['start'] = float(data[i].iloc[0])
+            coordinates[i]['end'] = float(data[i].iloc[-1])
             n = 0L
             coordinateValues = []
+            # O(N)
             for j in range(0,numLinesOfData):
-                if file_lines[j][i] in coordinateValues:
+                if data[i].iloc[j] in coordinateValues:
                     pass
                 else:
                     n+=1
-                    coordinateValues.append(file_lines[j][i])
+                    coordinateValues.append(data[i].iloc[j])
+         ### is there a better way to do this? Is it worth soring the data
             coordinates[i]['size'] = n
-        print(coordinates)
-        print(values)
         # return to the start of the file
         # is there a better way to do this?
         f.close()
@@ -1106,17 +1114,14 @@ class MainFrame(wx.Frame):
         shape[size-1]=long(len(coordinates)+len(values))
         
         shape = tuple(shape)
-        shaped_data = np.zeros(shape);
-        
+        nd_data = data.as_matrix()
+        shaped_data = np.reshape(nd_data,shape).astype(float)
         #skip through the first couple of lines where they talk about columns
         next_ = f.readline().split()
         while next_[0] == "#":
             next_ = f.readline().split()
         
         # populated shaped_data with the data values
-        shaped_data.flat=[next_]+file_lines
-        print(shaped_data)
-                    
         
         self.coordinates = coordinates
         self.shaped_data = shaped_data
@@ -1145,18 +1150,24 @@ class MainFrame(wx.Frame):
             self.draw_function(self.value_func["function"], self.value_func["values"],
                                recenter=True)
             
+        #self.left_panel.plot_window.plt.title(self.filename)
+            
     def reload_data(self):
         
         ###MIJ this needs to be via a greyed out button
         if self.filename == None:
             return
         
-        file_ = types.StringType(os.path.join(self.directory, self.filename))
+        #file_ = types.StringType(os.path.join(self.directory, self.filename))
 
-        mydata = data.Data(file_,name='static')
-        self.shaped_data = mydata.get_reshaped_data()
-        mydata.close_file()
-        del mydata
+        # this should do the same thing as load data, without choosing a file
+# =============================================================================
+#         mydata = data.Data(file_,name='static')
+#         self.shaped_data = mydata.get_reshaped_data()
+#         mydata.close_file()
+#         del mydata
+# =============================================================================
+            self.load_data(self.directory, self.filename)
 
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
