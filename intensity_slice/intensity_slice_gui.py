@@ -916,7 +916,6 @@ class MainFrame(wx.Frame):
         
         self.status_bar = self.CreateStatusBar()
         self.init_menu()
-        
         splitter = wx.SplitterWindow(self)
         self.left_panel = LeftPanel(parent=splitter, frame=self)
         self.right_panel = RightPanel(parent=splitter, frame=self)
@@ -1040,16 +1039,18 @@ class MainFrame(wx.Frame):
         file_dialog.Destroy()
         
     def load_data(self, directory, file_name):
-
+        # doesn't do anything until program closes?
+        self.left_panel.plot_window.intensity_plot.set_title(file_name)
+        self.SetTitle(file_name)
+        
         file_ = types.StringType(os.path.join(directory, file_name))
         
         f = open(file_,"r")
         next_ = f.readline().split()
         
-        # store the initial information about the coordinates and values listed in the first few lines of the file
+        # store info about the coordinates and values of the data
         coordinates = []
         values = []
-        
         while next_[0] == "#":
             if next_[1] == "Column":
                 colname = f.readline().split()[2]
@@ -1059,10 +1060,17 @@ class MainFrame(wx.Frame):
                 elif coltype == "value":
                     values.append({'name':colname,'type':coltype})
                 else:
-                    raise ValueError("Inputs should only be of type coordinate or value")            
-                
+                    raise ValueError("Inputs should only be of type coordinate or value")                   
             next_ = f.readline().split()
             
+        #number of intro lines in the file    
+        numHeaderLines=3*(len(coordinates)+len(values))+1
+        
+        columns = coordinates+values
+        names_=[]
+        for col in columns:
+            names_.append(col['name'])
+        
         if len(coordinates) < 1:
             f.close()
             del coordinates
@@ -1070,41 +1078,19 @@ class MainFrame(wx.Frame):
             raise RuntimeError('Data with less than 1 coordinate is currently '
                                'not supported')
         
-        file_lines = f.readlines()
-        numLinesOfData = len(file_lines)
+        data = pd.read_csv(directory+"\\"+file_name,sep="\t",
+                           skiprows=numHeaderLines, names=names_)
+        print(data)
+        print(coordinates)
+        print(values)
         
-        for i in range(0,numLinesOfData):
-            # check if this really needs to be there
-            if len(file_lines[i].split())==(len(coordinates)+len(values)):
-                file_lines[i] = file_lines[i].split()    
-            else:
-                file_lines[i] = [np.nan]*(len(coordinates)+len(values))
-        file_lines = [next_]+file_lines
-        data=pd.DataFrame(file_lines)
-        numLinesOfData+=1
-        
-        # this is not meaningful for NaN data e.g. labels
-        # labels should be stored and replaced with indices in the data!
+        # this is not meaningful for non-float data
         
         for i in range(0, len(coordinates)):
             # NOTE potential precision issues if you evaluate an int as a float
-            coordinates[i]['start'] = float(data[i].iloc[0])
-            coordinates[i]['end'] = float(data[i].iloc[-1])
-            n = 0L
-            coordinateValues = []
-            # O(N)
-            for j in range(0,numLinesOfData):
-                if data[i].iloc[j] in coordinateValues:
-                    pass
-                else:
-                    n+=1
-                    coordinateValues.append(data[i].iloc[j])
-         ### is there a better way to do this? Is it worth soring the data
-            coordinates[i]['size'] = n
-        # return to the start of the file
-        # is there a better way to do this?
-        f.close()
-        f = open(file_,"r")
+            coordinates[i]['start'] = data[coordinates[i]['name']].iloc[0]
+            coordinates[i]['end'] = data[coordinates[i]['name']].iloc[-1]
+            coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
         
         # create array of arbitrary shape
         size = len(coordinates)+1
@@ -1112,16 +1098,13 @@ class MainFrame(wx.Frame):
         for i in range(0,size-1):
             shape[i]=long(coordinates[i]['size'])
         shape[size-1]=long(len(coordinates)+len(values))
-        
         shape = tuple(shape)
-        nd_data = data.as_matrix()
-        shaped_data = np.reshape(nd_data,shape).astype(float)
-        #skip through the first couple of lines where they talk about columns
-        next_ = f.readline().split()
-        while next_[0] == "#":
-            next_ = f.readline().split()
-        
-        # populated shaped_data with the data values
+
+        matrix_data = data.as_matrix()
+        # How do I get the program to plot label data? Do I just not evaluate as float?
+        # Slices of data for iteration
+        shaped_data = np.reshape(matrix_data,shape).astype(float)
+        shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
         
         self.coordinates = coordinates
         self.shaped_data = shaped_data
@@ -1149,8 +1132,6 @@ class MainFrame(wx.Frame):
         else:
             self.draw_function(self.value_func["function"], self.value_func["values"],
                                recenter=True)
-            
-        #self.left_panel.plot_window.plt.title(self.filename)
             
     def reload_data(self):
         
