@@ -25,6 +25,7 @@ from wx.lib.scrolledpanel import ScrolledPanel
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.backends.backend_wxagg import NavigationToolbar2WxAgg as NavigationToolbar
 import matplotlib.pyplot as plt
+import matplotlib as mlp
 from matplotlib import gridspec
 from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 from wxwidgets import DragListCtrl, EVT_DRAGLIST, SliderGroup, Param
@@ -35,6 +36,7 @@ from wxwidgets import DragListCtrl, EVT_DRAGLIST, SliderGroup, Param
 
 global usage_ref
 global filenameglobal
+
         
 class CoordSliderGroup(SliderGroup):
     def __init__(self, parent, label, param, data, id_):
@@ -607,6 +609,7 @@ class PlotWindow(wx.Panel):
                                           sharey=self.y_slice_plot)
         ###
         self.intensity_plot.set_zorder(1)
+        self.intensity_plot.set_title(str(self.frame.filename));
         
         # The default configuration of matplotlib sets the _hold parameter to True,
         # which cause the data reload action to leak memory. We override the _hold
@@ -881,6 +884,11 @@ class PlotWindow(wx.Panel):
 
         self.intensity_plot.set_xlim(x[0], x[-1])
         self.intensity_plot.set_ylim(y[0], y[-1])
+        self.intensity_plot.set_title(self.frame.filename)
+        if self.frame.data_labels != None:
+            self.intensity_plot.set_xticks(self.frame.data_locs)
+            self.intensity_plot.set_xticklabels(self.frame.data_labels)
+        
 
         
         if recenter:
@@ -909,6 +917,15 @@ class MainFrame(wx.Frame):
     def __init__(self, parent=None, id_=-1, size=(900, 600),**kwargs):
         self.size = self._size_constraint(size)
         
+        # We need a filename holder that we can test before attempting "reload".
+        # Otherwise pressing the reload button with having a selected file will
+        # crash the application
+        self.filename = None
+        
+        #not sure if this is a shoddy way to add labels, but...
+        self.data_locs = None
+        self.data_labels = None
+
         super(MainFrame, self).__init__(parent, id_, size=self.size, **kwargs)
         font = wx.SystemSettings_GetFont(wx.SYS_SYSTEM_FONT)
         font.SetPointSize(9)
@@ -943,10 +960,7 @@ class MainFrame(wx.Frame):
         # index of the coordinates that are not plotted) 
         self.data_selection = []
 
-        # We need a filename holder that we can test before attempting "reload".
-        # Otherwise pressing the reload button with having a selected file will
-        # crash the application
-        self.filename = None
+
         
     def init_menu(self):
         menu_bar = wx.MenuBar()
@@ -1039,8 +1053,7 @@ class MainFrame(wx.Frame):
         file_dialog.Destroy()
         
     def load_data(self, directory, file_name):
-        # doesn't do anything until program closes?
-        self.left_panel.plot_window.intensity_plot.set_title(file_name)
+        pd.Series([directory+"\\"+file_name]).to_clipboard(index=False)
         self.SetTitle(file_name)
         
         file_ = types.StringType(os.path.join(directory, file_name))
@@ -1080,17 +1093,35 @@ class MainFrame(wx.Frame):
         
         data = pd.read_csv(directory+"\\"+file_name,sep="\t",
                            skiprows=numHeaderLines, names=names_)
+        f.close()
+
+
+        label_to_index = {}
+        for i in range(0, len(coordinates)):
+            # NOTE potential precision issues if you evaluate an int as a float
+            try:
+                coordinates[i]['start'] = float(data[coordinates[i]['name']].min())
+                coordinates[i]['end'] = float(data[coordinates[i]['name']].max())
+                if i==0:
+                    coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
+                else:
+                    coordinates[i]['size'] = len(data[coordinates[i]['name']].loc[data[coordinates[i-1]['name']] == data[coordinates[i-1]['name']].iloc[0]].unique())
+                self.data_labels=None
+            except ValueError:
+                labels = data[coordinates[i]['name']].unique()
+                for j in range(0,len(labels)):
+                    label_to_index[labels[j]]=j
+                self.data_locs=label_to_index.values()
+                self.data_labels=label_to_index.keys()
+                data[coordinates[i]['name']] = data[coordinates[i]['name']].map(label_to_index)
+                coordinates[i]['start'] = data[coordinates[i]['name']].min()
+                coordinates[i]['end'] = data[coordinates[i]['name']].max()
+                coordinates[i]['size'] = len(labels)
+                            
         print(data)
         print(coordinates)
         print(values)
         
-        # this is not meaningful for non-float data
-        
-        for i in range(0, len(coordinates)):
-            # NOTE potential precision issues if you evaluate an int as a float
-            coordinates[i]['start'] = data[coordinates[i]['name']].iloc[0]
-            coordinates[i]['end'] = data[coordinates[i]['name']].iloc[-1]
-            coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
         
         # create array of arbitrary shape
         size = len(coordinates)+1
@@ -1103,7 +1134,7 @@ class MainFrame(wx.Frame):
         matrix_data = data.as_matrix()
         # How do I get the program to plot label data? Do I just not evaluate as float?
         # Slices of data for iteration
-        shaped_data = np.reshape(matrix_data,shape).astype(float)
+        shaped_data = np.reshape(matrix_data,shape)
         shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
         
         self.coordinates = coordinates
@@ -1114,24 +1145,29 @@ class MainFrame(wx.Frame):
             self.coordinates.append(dict(type='coordinate', name='None', size=1))
             self.shaped_data.shape = (self.shaped_data.shape[0], 1, self.shaped_data.shape[1])
         
-        f.close()
         del coordinates
         del values
         del shaped_data
         del shape
         del next_
+        
+        if self.data_labels != None:
+            for label in self.data_labels:
+                label = '$'+label+'$'
+            
+            
 
         self._set_axis_cb_choices()
         self._set_value_choices()
         self._set_coordinate_choices()
         
-        self.data_selection = [0 for __ in self.shaped_data.shape]
-        
+        self.data_selection = [0 for __ in self.shaped_data.shape]  
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
             self.draw_function(self.value_func["function"], self.value_func["values"],
                                recenter=True)
+
             
     def reload_data(self):
         
@@ -1167,7 +1203,6 @@ class MainFrame(wx.Frame):
         self.value_idx = value
         
         # Draw the left panel within the MainFrame
-        
         self.left_panel.plot_window.draw(
             self.get_coordinate(x_idx),
             self.get_coordinate(y_idx),
