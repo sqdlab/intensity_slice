@@ -910,7 +910,7 @@ class MainFrame(wx.Frame):
         self.size = self._size_constraint(size)
         
         super(MainFrame, self).__init__(parent, id_, size=self.size, **kwargs)
-        font = wx.SystemSettings_GetFont(wx.SYS_SYSTEM_FONT)
+        font = wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT)
         font.SetPointSize(9)
         self.SetMinSize(self.min_size)
         
