@@ -15,9 +15,9 @@ import plotfunctions as plotf
 import re
 import inspect
 import linecache
-
-import matplotlib
-matplotlib.use('WXAgg')
+# I'm not really sure what these lines do, removing them doens't seem to do anything.
+# import matplotlib
+# matplotlib.use('WXAgg')
 
 from mpl_wxwidgets import Cursor
 from wx.lib.scrolledpanel import ScrolledPanel
@@ -25,7 +25,6 @@ from wx.lib.scrolledpanel import ScrolledPanel
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.backends.backend_wxagg import NavigationToolbar2WxAgg as NavigationToolbar
 import matplotlib.pyplot as plt
-import matplotlib as mlp
 from matplotlib import gridspec
 from matplotlib.ticker import MaxNLocator, FormatStrFormatter
 from wxwidgets import DragListCtrl, EVT_DRAGLIST, SliderGroup, Param
@@ -885,7 +884,7 @@ class PlotWindow(wx.Panel):
         self.intensity_plot.set_xlim(x[0], x[-1])
         self.intensity_plot.set_ylim(y[0], y[-1])
         self.intensity_plot.set_title(self.frame.filename)
-        if self.frame.data_labels != None:
+        if self.frame.data_labels != None:  
             self.intensity_plot.set_xticks(self.frame.data_locs)
             self.intensity_plot.set_xticklabels(self.frame.data_labels)
         
@@ -922,7 +921,9 @@ class MainFrame(wx.Frame):
         # crash the application
         self.filename = None
         
-        #not sure if this is a shoddy way to add labels, but...
+        # This is to add labels to the data. It seems like bad practice to make
+        # them class variables, but this seems like the easiest way to do
+        # it.
         self.data_locs = None
         self.data_labels = None
 
@@ -1028,8 +1029,9 @@ class MainFrame(wx.Frame):
         self.Close()
         
     def on_close(self, event):
-        self.Destroy()
         wx.GetApp().ExitMainLoop()
+        self.Destroy()
+
         
     def on_open(self, event):
         # TODO: Remove memory leak when opening new files or reloading an existing one                       
@@ -1053,34 +1055,43 @@ class MainFrame(wx.Frame):
         file_dialog.Destroy()
         
     def load_data(self, directory, file_name):
+        # Copy the file directory + name to clipboard (needs to be changed to a button)
         pd.Series([directory+"\\"+file_name]).to_clipboard(index=False)
-        self.SetTitle(file_name)
+        # Set the title of the window to the directory of the loaded file
+        self.SetTitle(directory+"\\"+file_name)
         
         file_ = types.StringType(os.path.join(directory, file_name))
         
         f = open(file_,"r")
-        next_ = f.readline().split()
+
+        # Store the information contained in the first few lines in the file
         
-        # store info about the coordinates and values of the data
         coordinates = []
         values = []
+        # Initialise the first 'next_' so that the loop condition works
+        next_ = f.readline().split()
+        # for each of the header lines of the file
         while next_[0] == "#":
+            # take the column name and type
             if next_[1] == "Column":
                 colname = f.readline().split()[2]
                 coltype = f.readline().split()[2]
+                # add the information to a list of coordinates or values
                 if coltype == "coordinate":
                     coordinates.append({'name':colname,'type':coltype})
                 elif coltype == "value":
                     values.append({'name':colname,'type':coltype})
                 else:
                     raise ValueError("Inputs should only be of type coordinate or value")                   
+            # go to the next line
             next_ = f.readline().split()
-            
-        #number of intro lines in the file    
+        
+        #number of intro lines in the file (so that read_csv below knows how many lines to skip)    
         numHeaderLines=3*(len(coordinates)+len(values))+1
         
         columns = coordinates+values
         names_=[]
+        # Get the names of the columns for the dataframe
         for col in columns:
             names_.append(col['name'])
         
@@ -1091,22 +1102,31 @@ class MainFrame(wx.Frame):
             raise RuntimeError('Data with less than 1 coordinate is currently '
                                'not supported')
         
+        # load the file data into a pandas dataframe
         data = pd.read_csv(directory+"\\"+file_name,sep="\t",
                            skiprows=numHeaderLines, names=names_)
         f.close()
 
 
         label_to_index = {}
+        # extract information from the dataframe about the start and end values, and
+        # number of elements in each column
         for i in range(0, len(coordinates)):
-            # NOTE potential precision issues if you evaluate an int as a float
+            # NOTE there could be precision issues if you evaluate an int as a float
             try:
                 coordinates[i]['start'] = float(data[coordinates[i]['name']].min())
                 coordinates[i]['end'] = float(data[coordinates[i]['name']].max())
+                # find the number of unique values if we're looking at the first column
                 if i==0:
                     coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
+                # otherwise find the number of unique values in the first slice 
                 else:
-                    coordinates[i]['size'] = len(data[coordinates[i]['name']].loc[data[coordinates[i-1]['name']] == data[coordinates[i-1]['name']].iloc[0]].unique())
+                    coordinates[i]['size'] = len(data[coordinates[i]['name']].
+                               loc[data[coordinates[i-1]['name']] == data[
+                                       coordinates[i-1]['name']].iloc[0]].
+                                       unique())
                 self.data_labels=None
+            # Handle data that's not a number (i.e. labelled data) by mapping it to integers
             except ValueError:
                 labels = data[coordinates[i]['name']].unique()
                 for j in range(0,len(labels)):
@@ -1117,13 +1137,23 @@ class MainFrame(wx.Frame):
                 coordinates[i]['start'] = data[coordinates[i]['name']].min()
                 coordinates[i]['end'] = data[coordinates[i]['name']].max()
                 coordinates[i]['size'] = len(labels)
-                            
-        print(data)
-        print(coordinates)
-        print(values)
         
+        # Drop incomplete slices from the DataFrame
+        if len(coordinates) > 1:
+            
+            # The number of (unique!) elements of the last slice in the file
+            sizeOfFinalSlice = len(data[coordinates[-1]['name']].loc[
+                    data[coordinates[-2]['name']] == data[coordinates[-2]
+                    ['name']].iloc[-1]].unique())
+                        
+            # If the number of elements in the last slice is less than the others, drop the last slice
+            # Note that this won't work if the second last column isn't the slice column, and the last isn't the repeating column
+            if coordinates[-1]['size'] != sizeOfFinalSlice:
+                data = data.drop(data.index[(data.shape[0]-sizeOfFinalSlice):])
+                coordinates[-2]['end']-=1
+                coordinates[-2]['size']-=1
         
-        # create array of arbitrary shape
+        # Create array of arbitrary shape, based on number of columns of data
         size = len(coordinates)+1
         shape = [0]*(size)
         for i in range(0,size-1):
@@ -1131,9 +1161,10 @@ class MainFrame(wx.Frame):
         shape[size-1]=long(len(coordinates)+len(values))
         shape = tuple(shape)
 
+        # Represent the dataframe as an n-dimensional matrix
         matrix_data = data.as_matrix()
-        # How do I get the program to plot label data? Do I just not evaluate as float?
         # Slices of data for iteration
+        # Reshape the array into a form that the data is happy with, and mask any NaN values
         shaped_data = np.reshape(matrix_data,shape)
         shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
         
@@ -1165,9 +1196,8 @@ class MainFrame(wx.Frame):
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
-            self.draw_function(self.value_func["function"], self.value_func["values"],
+            self.draw_function(self.value_func["function"], self.value_func["val ues"],
                                recenter=True)
-
             
     def reload_data(self):
         
