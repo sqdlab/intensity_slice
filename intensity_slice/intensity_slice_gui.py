@@ -15,9 +15,9 @@ import plotfunctions as plotf
 import re
 import inspect
 import linecache
-
-import matplotlib
-matplotlib.use('WXAgg')
+# I'm not really sure what these lines do, removing them doens't seem to do anything.
+# import matplotlib
+# matplotlib.use('WXAgg')
 
 from mpl_wxwidgets import Cursor
 from wx.lib.scrolledpanel import ScrolledPanel
@@ -35,6 +35,7 @@ from wxwidgets import DragListCtrl, EVT_DRAGLIST, SliderGroup, Param
 
 global usage_ref
 global filenameglobal
+
         
 class CoordSliderGroup(SliderGroup):
     def __init__(self, parent, label, param, data, id_):
@@ -607,6 +608,7 @@ class PlotWindow(wx.Panel):
                                           sharey=self.y_slice_plot)
         ###
         self.intensity_plot.set_zorder(1)
+        self.intensity_plot.set_title(str(self.frame.filename));
         
         # The default configuration of matplotlib sets the _hold parameter to True,
         # which cause the data reload action to leak memory. We override the _hold
@@ -881,6 +883,11 @@ class PlotWindow(wx.Panel):
 
         self.intensity_plot.set_xlim(x[0], x[-1])
         self.intensity_plot.set_ylim(y[0], y[-1])
+        self.intensity_plot.set_title(self.frame.filename)
+        if self.frame.data_labels != None:  
+            self.intensity_plot.set_xticks(self.frame.data_locs)
+            self.intensity_plot.set_xticklabels(self.frame.data_labels)
+        
 
         
         if recenter:
@@ -909,6 +916,17 @@ class MainFrame(wx.Frame):
     def __init__(self, parent=None, id_=-1, size=(900, 600),**kwargs):
         self.size = self._size_constraint(size)
         
+        # We need a filename holder that we can test before attempting "reload".
+        # Otherwise pressing the reload button with having a selected file will
+        # crash the application
+        self.filename = None
+        
+        # This is to add labels to the data. It seems like bad practice to make
+        # them class variables, but this seems like the easiest way to do
+        # it.
+        self.data_locs = None
+        self.data_labels = None
+
         super(MainFrame, self).__init__(parent, id_, size=self.size, **kwargs)
         font = wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT)
         font.SetPointSize(9)
@@ -916,7 +934,6 @@ class MainFrame(wx.Frame):
         
         self.status_bar = self.CreateStatusBar()
         self.init_menu()
-        
         splitter = wx.SplitterWindow(self)
         self.left_panel = LeftPanel(parent=splitter, frame=self)
         self.right_panel = RightPanel(parent=splitter, frame=self)
@@ -944,10 +961,7 @@ class MainFrame(wx.Frame):
         # index of the coordinates that are not plotted) 
         self.data_selection = []
 
-        # We need a filename holder that we can test before attempting "reload".
-        # Otherwise pressing the reload button with having a selected file will
-        # crash the application
-        self.filename = None
+
         
     def init_menu(self):
         menu_bar = wx.MenuBar()
@@ -1015,8 +1029,9 @@ class MainFrame(wx.Frame):
         self.Close()
         
     def on_close(self, event):
-        self.Destroy()
         wx.GetApp().ExitMainLoop()
+        self.Destroy()
+
         
     def on_open(self, event):
         # TODO: Remove memory leak when opening new files or reloading an existing one                       
@@ -1040,29 +1055,46 @@ class MainFrame(wx.Frame):
         file_dialog.Destroy()
         
     def load_data(self, directory, file_name):
-
+        # Copy the file directory + name to clipboard (needs to be changed to a button)
+        pd.Series([directory+"\\"+file_name]).to_clipboard(index=False)
+        # Set the title of the window to the directory of the loaded file
+        self.SetTitle(directory+"\\"+file_name)
+        
         file_ = types.StringType(os.path.join(directory, file_name))
         
         f = open(file_,"r")
-        next_ = f.readline().split()
+
+        # Store the information contained in the first few lines in the file
         
-        # store the initial information about the coordinates and values listed in the first few lines of the file
         coordinates = []
         values = []
-        
+        # Initialise the first 'next_' so that the loop condition works
+        next_ = f.readline().split()
+        # for each of the header lines of the file
         while next_[0] == "#":
+            # take the column name and type
             if next_[1] == "Column":
                 colname = f.readline().split()[2]
                 coltype = f.readline().split()[2]
+                # add the information to a list of coordinates or values
                 if coltype == "coordinate":
                     coordinates.append({'name':colname,'type':coltype})
                 elif coltype == "value":
                     values.append({'name':colname,'type':coltype})
                 else:
-                    raise ValueError("Inputs should only be of type coordinate or value")            
-                
+                    raise ValueError("Inputs should only be of type coordinate or value")                   
+            # go to the next line
             next_ = f.readline().split()
-            
+        
+        #number of intro lines in the file (so that read_csv below knows how many lines to skip)    
+        numHeaderLines=3*(len(coordinates)+len(values))+1
+        
+        columns = coordinates+values
+        names_=[]
+        # Get the names of the columns for the dataframe
+        for col in columns:
+            names_.append(col['name'])
+        
         if len(coordinates) < 1:
             f.close()
             del coordinates
@@ -1070,58 +1102,71 @@ class MainFrame(wx.Frame):
             raise RuntimeError('Data with less than 1 coordinate is currently '
                                'not supported')
         
-        file_lines = f.readlines()
-        numLinesOfData = len(file_lines)
-        
-        for i in range(0,numLinesOfData):
-            # check if this really needs to be there
-            if len(file_lines[i].split())==(len(coordinates)+len(values)):
-                file_lines[i] = file_lines[i].split()    
-            else:
-                file_lines[i] = [np.nan]*(len(coordinates)+len(values))
-        file_lines = [next_]+file_lines
-        data=pd.DataFrame(file_lines)
-        numLinesOfData+=1
-        
-        # this is not meaningful for NaN data e.g. labels
-        # labels should be stored and replaced with indices in the data!
-        
-        for i in range(0, len(coordinates)):
-            # NOTE potential precision issues if you evaluate an int as a float
-            coordinates[i]['start'] = float(data[i].iloc[0])
-            coordinates[i]['end'] = float(data[i].iloc[-1])
-            n = 0L
-            coordinateValues = []
-            # O(N)
-            for j in range(0,numLinesOfData):
-                if data[i].iloc[j] in coordinateValues:
-                    pass
-                else:
-                    n+=1
-                    coordinateValues.append(data[i].iloc[j])
-         ### is there a better way to do this? Is it worth soring the data
-            coordinates[i]['size'] = n
-        # return to the start of the file
-        # is there a better way to do this?
+        # load the file data into a pandas dataframe
+        data = pd.read_csv(directory+"\\"+file_name,sep="\t",
+                           skiprows=numHeaderLines, names=names_)
         f.close()
-        f = open(file_,"r")
+
+
+        label_to_index = {}
+        # extract information from the dataframe about the start and end values, and
+        # number of elements in each column
+        for i in range(0, len(coordinates)):
+            # NOTE there could be precision issues if you evaluate an int as a float
+            try:
+                coordinates[i]['start'] = float(data[coordinates[i]['name']].min())
+                coordinates[i]['end'] = float(data[coordinates[i]['name']].max())
+                # find the number of unique values if we're looking at the first column
+                if i==0:
+                    coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
+                # otherwise find the number of unique values in the first slice 
+                else:
+                    coordinates[i]['size'] = len(data[coordinates[i]['name']].
+                               loc[data[coordinates[i-1]['name']] == data[
+                                       coordinates[i-1]['name']].iloc[0]].
+                                       unique())
+                self.data_labels=None
+            # Handle data that's not a number (i.e. labelled data) by mapping it to integers
+            except ValueError:
+                labels = data[coordinates[i]['name']].unique()
+                for j in range(0,len(labels)):
+                    label_to_index[labels[j]]=j
+                self.data_locs=label_to_index.values()
+                self.data_labels=label_to_index.keys()
+                data[coordinates[i]['name']] = data[coordinates[i]['name']].map(label_to_index)
+                coordinates[i]['start'] = data[coordinates[i]['name']].min()
+                coordinates[i]['end'] = data[coordinates[i]['name']].max()
+                coordinates[i]['size'] = len(labels)
         
-        # create array of arbitrary shape
+        # Drop incomplete slices from the DataFrame
+        if len(coordinates) > 1:
+            
+            # The number of (unique!) elements of the last slice in the file
+            sizeOfFinalSlice = len(data[coordinates[-1]['name']].loc[
+                    data[coordinates[-2]['name']] == data[coordinates[-2]
+                    ['name']].iloc[-1]].unique())
+                        
+            # If the number of elements in the last slice is less than the others, drop the last slice
+            # Note that this won't work if the second last column isn't the slice column, and the last isn't the repeating column
+            if coordinates[-1]['size'] != sizeOfFinalSlice:
+                data = data.drop(data.index[(data.shape[0]-sizeOfFinalSlice):])
+                coordinates[-2]['end']-=1
+                coordinates[-2]['size']-=1
+        
+        # Create array of arbitrary shape, based on number of columns of data
         size = len(coordinates)+1
         shape = [0]*(size)
         for i in range(0,size-1):
             shape[i]=long(coordinates[i]['size'])
         shape[size-1]=long(len(coordinates)+len(values))
-        
         shape = tuple(shape)
-        nd_data = data.as_matrix()
-        shaped_data = np.reshape(nd_data,shape).astype(float)
-        #skip through the first couple of lines where they talk about columns
-        next_ = f.readline().split()
-        while next_[0] == "#":
-            next_ = f.readline().split()
-        
-        # populated shaped_data with the data values
+
+        # Represent the dataframe as an n-dimensional matrix
+        matrix_data = data.as_matrix()
+        # Slices of data for iteration
+        # Reshape the array into a form that the data is happy with, and mask any NaN values
+        shaped_data = np.reshape(matrix_data,shape)
+        shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
         
         self.coordinates = coordinates
         self.shaped_data = shaped_data
@@ -1131,26 +1176,28 @@ class MainFrame(wx.Frame):
             self.coordinates.append(dict(type='coordinate', name='None', size=1))
             self.shaped_data.shape = (self.shaped_data.shape[0], 1, self.shaped_data.shape[1])
         
-        f.close()
         del coordinates
         del values
         del shaped_data
         del shape
         del next_
+        
+        if self.data_labels != None:
+            for label in self.data_labels:
+                label = '$'+label+'$'
+            
+            
 
         self._set_axis_cb_choices()
         self._set_value_choices()
         self._set_coordinate_choices()
         
-        self.data_selection = [0 for __ in self.shaped_data.shape]
-        
+        self.data_selection = [0 for __ in self.shaped_data.shape]  
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
-            self.draw_function(self.value_func["function"], self.value_func["values"],
+            self.draw_function(self.value_func["function"], self.value_func["val ues"],
                                recenter=True)
-            
-        #self.left_panel.plot_window.plt.title(self.filename)
             
     def reload_data(self):
         
@@ -1186,7 +1233,6 @@ class MainFrame(wx.Frame):
         self.value_idx = value
         
         # Draw the left panel within the MainFrame
-        
         self.left_panel.plot_window.draw(
             self.get_coordinate(x_idx),
             self.get_coordinate(y_idx),
