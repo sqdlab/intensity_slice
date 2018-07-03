@@ -144,6 +144,7 @@ class MathPanel(wx.Panel):
         self.t_param.SetMinSize((75,-1))
         self.t_param.SetValue("0")
         self.button_reload = wx.Button(self, wx.ID_ANY, label="Reload Functions")
+        self.button_fourier_transform = wx.Button(self, wx.ID_ANY, label = "Fourier Transform (FFT)")
         
         self.text = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY)
         
@@ -151,6 +152,7 @@ class MathPanel(wx.Panel):
         self.dl_values.Bind(EVT_DRAGLIST, self.droplist_handler)
         self.t_param.Bind(wx.EVT_TEXT_ENTER, self.on_text_param)
         self.button_reload.Bind(wx.EVT_BUTTON, self.on_reload)
+        self.button_fourier_transform.Bind(wx.EVT_BUTTON, self.fourier_transform)
         
         self._do_layout()
         
@@ -187,7 +189,7 @@ class MathPanel(wx.Panel):
                     flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
                     border=5)
         sizer_v.Add(self.button_reload)
-        
+        sizer_v.Add(self.button_fourier_transform)
         self.SetSizer(sizer_v)
 
     def _clear_functions(self):
@@ -218,6 +220,10 @@ class MathPanel(wx.Panel):
             index = 0
         self.cb_value.SetSelection(index)
         self.draw()
+        
+    def fourier_transform(self, event):
+        print("BAM! Fourier Transform!")
+        self.frame.left_panel.plot_window.fourier_plot()
 
     def on_cb_value(self, event):
         self.draw()
@@ -829,6 +835,18 @@ class PlotWindow(wx.Panel):
         
         #self.repaint()
         #self.canvas.draw()
+        
+    def fourier_plot(self):
+        self.x_slice_plot.clear()
+        if self.data.shape[0] < abs(self.y_idx):
+            self.y_idx = -1
+        xslice = self.data[self.y_idx]
+        N = len(self.x)
+        T = 1/max(self.x)
+        yf = np.fft.fft(xslice)
+        xf = np.linspace(0,1.0/(2.0*T),N)
+        self.x_slice_plot.plot(xf, 2.0/N * np.abs(yf))
+        self.repaint()
             
     def draw(self, x, y, data, recenter=True):
         
@@ -1212,13 +1230,13 @@ class MainFrame(wx.Frame):
 #         del mydata
 # =============================================================================
             self.load_data(self.directory, self.filename)
-#
-#        if self.value_func is None:
-#            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
-#        else:
-#            self.draw_function(self.value_func["function"], self.value_func["values"],
-#                               recenter=False)
-#                      
+
+        if self.value_func is None:
+            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
+        else:
+            self.draw_function(self.value_func["function"], self.value_func["values"],
+                               recenter=False)
+                      
     def draw(self, x_idx, y_idx, value, **kwargs):
 
         # Draw MainFrame object        
