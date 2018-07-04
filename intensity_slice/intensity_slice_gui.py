@@ -8,6 +8,7 @@ Created on May 25, 2013
 import wx
 import numpy as np
 import pandas as pd
+import sys
 import copy
 import os
 import types
@@ -1407,4 +1408,11 @@ class App(wx.App):
 
 if __name__ == '__main__':
     app = App(False)
+    #app.MainLoop()
+    #from custom_lib.intensity_slice_gui import App
+    if len(sys.argv)>1:
+        directory, filename = os.path.split(sys.argv[1])
+        app.frame1.directory = directory
+        app.frame1.filename = filename
+        app.frame1.load_data(directory, filename)
     app.MainLoop()
