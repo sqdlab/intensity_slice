@@ -978,6 +978,9 @@ class MainFrame(wx.Frame):
         # Defines which slices of 2D data should be plotted (selects the
         # index of the coordinates that are not plotted) 
         self.data_selection = []
+        
+        # TEMPORARY
+        self.data_frame = None
 
 
         
@@ -1230,8 +1233,7 @@ class MainFrame(wx.Frame):
 #         mydata.close_file()
 #         del mydata
 # =============================================================================
-            self.load_data(self.directory, self.filename)
-
+        self.load_data(self.directory, self.filename)
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
         else:
@@ -1253,6 +1255,7 @@ class MainFrame(wx.Frame):
             self.get_coordinate(x_idx),
             self.get_coordinate(y_idx),
             self.get_data_slice(value),
+            #dataframe.pivot(columns=self.get_coordinate(x_idx), index = self.get_coordinate(y_idx), values=)
             **kwargs
             )         
 
