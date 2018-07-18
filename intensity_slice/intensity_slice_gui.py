@@ -38,11 +38,10 @@ global filenameglobal
 
         
 class CoordSliderGroup(SliderGroup):
-    def __init__(self, parent, label, param, data, id_):
-        selection = [0 for __ in np.shape(data)]
-        selection[id_] = slice(None)
-        selection[-1] = id_
-        self._data_slice = data[selection]
+    def __init__(self, parent, label, param, data, coordinates, id_):
+        table_data = data.reset_index()
+        columns = table_data.columns
+        self._data_slice = table_data[columns[id_]].unique()
         
         super(CoordSliderGroup, self).__init__(parent, label, param, id_=id_)
     
@@ -55,7 +54,7 @@ class CoordSliderGroup(SliderGroup):
     
     def set_knob(self, value):
         self.slider.SetValue(value)
-        self.text.SetValue("{0:.6}".format(self._data_slice[value]))
+        self.text.SetValue("{0:.6}".format(float(self._data_slice[value])))
 
 class CoordSliderPanel(ScrolledPanel):
     def __init__(self, parent, size, **kwargs):
@@ -70,8 +69,8 @@ class CoordSliderPanel(ScrolledPanel):
         self.sizer = sizer
         self._sliders = []
         
-    def add_slider(self, label, param, data, id_=None):
-        newslider = CoordSliderGroup(self, label, param, data, id_)
+    def add_slider(self, label, param, data, coordinate, id_=None):
+        newslider = CoordSliderGroup(self, label, param, data, coordinate, id_)
         self._sliders.append(newslider)
         self.sizer.Add(newslider, flag=wx.EXPAND | wx.ALL, border=5)
         self.sizer.Layout()
@@ -223,7 +222,6 @@ class MathPanel(wx.Panel):
         self.draw()
         
     def fourier_transform(self, event):
-        print("BAM! Fourier Transform!")
         self.frame.left_panel.plot_window.fourier_plot()
 
     def on_cb_value(self, event):
@@ -569,7 +567,7 @@ class PlotWindow(wx.Panel):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(sizer1, proportion=0, flag=wx.EXPAND)
         sizer.Add(self.canvas, proportion=1, flag=wx.EXPAND)
-        
+
         self.SetSizer(sizer)
         
         # Cursor list [intensity plot, xplot, yplot]
@@ -615,6 +613,8 @@ class PlotWindow(wx.Panel):
         ###
         self.intensity_plot.set_zorder(1)
         self.intensity_plot.set_title(str(self.frame.filename));
+        
+        
         
         # The default configuration of matplotlib sets the _hold parameter to True,
         # which cause the data reload action to leak memory. We override the _hold
@@ -817,9 +817,9 @@ class PlotWindow(wx.Panel):
         pos = event.xdata, event.ydata
         self.x_idx = np.argmin(np.abs(self.x - pos[0]))
         self.y_idx = np.argmin(np.abs(self.y - pos[1]))
-        
         self.update_slice_plots(
-            self.data[self.y_idx], np.transpose(self.data)[self.x_idx])
+            self.data.xs(self.data.index[self.y_idx],0),
+            self.data.xs(self.data.columns[self.x_idx],1))
         
     def update_slice_plots(self, xdata, ydata):
         self.x_slice.set_ydata(xdata)
@@ -839,13 +839,18 @@ class PlotWindow(wx.Panel):
         
     def fourier_plot(self):
         self.x_slice_plot.clear()
+        
         if self.data.shape[0] < abs(self.y_idx):
             self.y_idx = -1
-        xslice = self.data[self.y_idx]
+        
+        xslice = self.data.xs(self.data.index[self.y_idx],0)
+        
+        # Fast fourier transforms the data along the x domain
         N = len(self.x)
         T = 1/max(self.x)
         yf = np.fft.fft(xslice)
         xf = np.linspace(0,1.0/(2.0*T),N)
+        
         self.x_slice_plot.plot(xf, 2.0/N * np.abs(yf))
         self.repaint()
             
@@ -869,12 +874,15 @@ class PlotWindow(wx.Panel):
         
         if data.shape[0] < abs(self.y_idx):
             self.y_idx = -1
-        xslice = data[self.y_idx]
+        # temporary    
+        # xslice = data[self.y_idx]
+        xslice=data.xs(self.data.index[self.y_idx],0)
         
         if data.shape[1] < abs(self.x_idx):
             self.x_idx = -1
-        yslice = np.transpose(data)[self.x_idx]           
-
+        # temporary
+        # yslice = np.transpose(data)[self.x_idx]           
+        yslice = data.xs(self.data.columns[self.x_idx],1)
         self.x_slice, = self.x_slice_plot.plot(x, xslice)       #horizontal slice below main image
         self.y_slice, = self.y_slice_plot.plot(yslice, y)       #vertical slice to right of main image
 
@@ -885,12 +893,24 @@ class PlotWindow(wx.Panel):
             else:
                 #deltas.append(coord[1] - coord[0])
                 deltas.append(np.min(np.diff(coord)))
+        
+        # Last index of array must be indexed differently depending on object
+        if type(x)==type(pd.Series()):
+            px = np.append(x, x.iloc[-1]+deltas[0]) - deltas[0]/2.
+            py = np.append(y, y.iloc[-1]+deltas[1]) - deltas[1]/2.
+            
+            self.intensity_plot.pcolormesh(px, py, data, )
 
-        px = np.append(x, x[-1]+deltas[0]) - deltas[0]/2.
-        py = np.append(y, y[-1]+deltas[1]) - deltas[1]/2.
+            self.intensity_plot.set_xlim(x[0], x.iloc[-1])
+            self.intensity_plot.set_ylim(y[0], y.iloc[-1])            
+        else:
+            px = np.append(x, x[-1]+deltas[0]) - deltas[0]/2.
+            py = np.append(y, y[-1]+deltas[1]) - deltas[1]/2.
+            
+            self.intensity_plot.pcolormesh(px, py, data, )
 
-
-        self.intensity_plot.pcolormesh(px, py, data, )
+            self.intensity_plot.set_xlim(x[0], x[-1])
+            self.intensity_plot.set_ylim(y[0], y[-1])
         
         #self.intensity_plot.imshow(data, interpolation='none',
                                    #aspect='auto', origin='lower',
@@ -899,8 +919,7 @@ class PlotWindow(wx.Panel):
                                            #y[0] - deltas[1]/2.0,
                                            #y[-1] + deltas[1]/2.0])
 
-        self.intensity_plot.set_xlim(x[0], x[-1])
-        self.intensity_plot.set_ylim(y[0], y[-1])
+
         self.intensity_plot.set_title(self.frame.filename)
         if self.frame.data_labels != None:  
             self.intensity_plot.set_xticks(self.frame.data_locs)
@@ -1039,7 +1058,7 @@ class MainFrame(wx.Frame):
     def on_coord_slider(self, event):
         coord_idx = event.GetEventObject().Parent.id
         position = event.GetInt()
-        self.data_selection[coord_idx] = position
+        self.data_selection[coord_idx] = self.data_frame.reset_index().iloc[:,coord_idx].unique()[position]
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx)
         else:
@@ -1135,12 +1154,12 @@ class MainFrame(wx.Frame):
         for i in range(0, len(coordinates)):
             # NOTE there could be precision issues if you evaluate an int as a float
             try:
-                coordinates[i]['start'] = float(data[coordinates[i]['name']].min())
-                coordinates[i]['end'] = float(data[coordinates[i]['name']].max())
+                coordinates[i]['start'] = np.float64(data[coordinates[i]['name']].min())
+                coordinates[i]['end'] = np.float64(data[coordinates[i]['name']].max())
                 # find the number of unique values if we're looking at the first column
                 if i==0:
                     coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
-                # otherwise find the number of unique values in the first slice 
+                # otherwise find the number of unique values of each coord in the first slice 
                 else:
                     coordinates[i]['size'] = len(data[coordinates[i]['name']].
                                loc[data[coordinates[i-1]['name']] == data[
@@ -1180,38 +1199,56 @@ class MainFrame(wx.Frame):
         shape[size-1]=long(len(coordinates)+len(values))
         shape = tuple(shape)
 
-        # Represent the dataframe as an n-dimensional matrix
-        matrix_data = data.as_matrix()
-        # Slices of data for iteration
-        # Reshape the array into a form that the data is happy with, and mask any NaN values
-        shaped_data = np.reshape(matrix_data,shape)
-        shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
+#        # Represent the dataframe as an n-dimensional matrix
+#        matrix_data = data.as_matrix()
+#        # Slices of data for iteration
+#        # Reshape the array into a form that the data is happy with, and mask any NaN values
+#        shaped_data = np.reshape(matrix_data,shape)
+#        shaped_data = np.ma.masked_array(shaped_data,np.isnan(shaped_data))
         
         self.coordinates = coordinates
-        self.shaped_data = shaped_data
+        # self.shaped_data = shaped_data
         self.values = values
+        self.shape = shape
+        # temporary
         
+        # temporary, needs commenting, might be band-aid instead of fixing main issue
         if len(coordinates) == 1:
-            self.coordinates.append(dict(type='coordinate', name='None', size=1))
-            self.shaped_data.shape = (self.shaped_data.shape[0], 1, self.shaped_data.shape[1])
+            self.coordinates = [dict(type='coordinate', name='None', size=1, start=1)] + self.coordinates
+            self.shape = (1, self.shape[0], self.shape[1]+1L)
+            rows = len(data[data.columns[0]])
+            data['None'] = pd.Series(np.ones(rows))
+            columns = data.columns.tolist()
+            columns = columns[-1:] + columns[:-1]
+            data = data[columns]
+        
+        
+        self.data_frame = data.set_index([coord['name'] for coord in self.coordinates])
+
+#        temporary
+        
+        self.data_selection = [coord['start'] for coord in self.coordinates]+[1]
+
         
         del coordinates
         del values
-        del shaped_data
+#        del shaped_data
         del shape
+        del data
         del next_
         
         if self.data_labels != None:
             for label in self.data_labels:
                 label = '$'+label+'$'
             
-            
 
         self._set_axis_cb_choices()
         self._set_value_choices()
         self._set_coordinate_choices()
         
-        self.data_selection = [0 for __ in self.shaped_data.shape]  
+        # self.data_selection = [0 for __ in self.shaped_data.shape]
+        
+
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
@@ -1224,15 +1261,6 @@ class MainFrame(wx.Frame):
         if self.filename == None:
             return
         
-        #file_ = types.StringType(os.path.join(self.directory, self.filename))
-
-        # this should do the same thing as load data, without choosing a file
-# =============================================================================
-#         mydata = data.Data(file_,name='static')
-#         self.shaped_data = mydata.get_reshaped_data()
-#         mydata.close_file()
-#         del mydata
-# =============================================================================
         self.load_data(self.directory, self.filename)
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
@@ -1249,15 +1277,26 @@ class MainFrame(wx.Frame):
         self.x_idx = x_idx
         self.y_idx = y_idx
         self.value_idx = value
+
+        if value == -1:
+            value = len(self.data_frame.columns)-1
         
-        # Draw the left panel within the MainFrame
-        self.left_panel.plot_window.draw(
-            self.get_coordinate(x_idx),
-            self.get_coordinate(y_idx),
-            self.get_data_slice(value),
-            #dataframe.pivot(columns=self.get_coordinate(x_idx), index = self.get_coordinate(y_idx), values=)
-            **kwargs
-            )         
+        selection = tuple(self.get_selection((x_idx, y_idx), value)[:-1])
+
+        slice_ = []
+        levels = []        
+        # Take a cross-section with fixed columns indicated by the selection
+        for i in range(0,len(selection)):
+            if selection[i] != slice(None):
+                slice_.append(selection[i])
+                levels.append(i)
+        slice_ = tuple(slice_)
+        levels = tuple(levels)
+        value_index = self.data_frame.columns[value]
+        
+        data_slice=self.data_frame.xs(slice_,level=levels)[value_index].unstack() 
+        
+        self.left_panel.plot_window.draw(data_slice.columns,data_slice.index, data_slice)
 
     def draw_function(self, func, values, **kwargs):
         self.value_idx = None
@@ -1265,6 +1304,7 @@ class MainFrame(wx.Frame):
         self.value_func = {"function": func,
                            "values": values
                            }
+        
         value_names = [coord['name'] for coord in self.values]
         value_indices = [value_names.index(value) for value in values]
         
@@ -1293,11 +1333,39 @@ class MainFrame(wx.Frame):
     
     def get_coordinate(self, axis):
         selection = self.get_selection(axis)
-        return self.shaped_data[selection]
+        
+        columns = []
+        conditions = []
+        data = self.data_frame.reset_index()
+        for i in range(0,len(selection[:-1])):
+            condition = selection[i]
+            if condition != slice(None):
+                columns.append(self.coordinates[i]['name'])
+                conditions.append(condition)
+        selection_condition = ' & '.join(
+                ["(data['{0}'] == {1})".format(col, cond) for
+                 col, cond in zip(columns, conditions)])
+        return data[eval(selection_condition)][self.coordinates[axis]['name']]
 
+            
+        return self.shaped_data[selection]
+ 
     def get_data_slice(self, value_axis):
-        selection = self.get_selection((self.x_idx, self.y_idx), value_axis)
-        data_slice = self.shaped_data[selection]
+        selection = tuple(self.get_selection((self.x_idx, self.y_idx), value_axis)[:-1])
+        
+        slice_=[]
+        level_ = []
+        # Take a cross-section holding the selected values fixed
+        for i in range(0,len(selection)):
+            if selection[i] != slice(None):
+                level_.append(i)
+                slice_.append(selection[i])
+        level_ = tuple(level_)
+        slice_ = tuple(slice_)
+    
+        value_index = self.data_frame.reset_index().columns[value_axis]
+        data_slice = self.data_frame.xs(slice_, level=level_)[value_index].unstack()
+        
         if self.x_idx < self.y_idx:
             return np.transpose(data_slice)
         else:
@@ -1381,11 +1449,13 @@ class MainFrame(wx.Frame):
 
     def _set_coordinate_sliders(self, coord_indices):
         self.right_panel.slider_panel.clear()
+        # temporary add coordinate
         for idx in range(len(self.coordinates)):
             self.right_panel.slider_panel.add_slider(
                 self.coordinates[idx]['name'], 
                 Param(0, 0, self.coordinates[idx]['size']-1),
-                self.shaped_data,
+                self.data_frame,
+                self.coordinates,
                 id_=idx
                 )
             
