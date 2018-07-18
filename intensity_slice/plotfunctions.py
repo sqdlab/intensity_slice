@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import math
 
 def abs_value(v, x, y, p):
@@ -39,7 +40,10 @@ def phase(v, x, y, p):
     
     '''
     z = v[0] + 1.0j*v[1]
-    return np.unwrap(np.angle(z*math.e**(1.0j*p*math.pi)))
+    z = z*math.e**(1.0j*p*math.pi)
+    z = z.apply(lambda y: np.angle(y))
+    z = pd.DataFrame(np.unwrap(z,discont=np.pi,axis=1), index = z.index, columns = z.columns)
+    return z
 
 def real_fancy(v, x, y, p):
     '''
@@ -47,8 +51,9 @@ def real_fancy(v, x, y, p):
     
     '''
     z = v[0]-np.mean(v[0],0) + 1.0j*(v[1]-np.mean(v[1],0))
-    z *= math.e**(1.0j*p*math.pi)
-    return np.real(z)
+    z = z*math.e**(1.0j*p*math.pi)
+    z = z.apply(lambda x: np.real(x))
+    return z
 
 def real(v, x, y, p):
     '''
@@ -56,8 +61,9 @@ def real(v, x, y, p):
     
     '''
     z = v[0] + 1.0j*v[1]
-    z *= math.e**(1.0j*p*math.pi)
-    return np.real(z)
+    z = z*math.e**(1.0j*p*math.pi)
+    z = z.apply(lambda x: np.real(x))
+    return z
    
 def imag(v, x, y, p):
     '''
@@ -65,8 +71,9 @@ def imag(v, x, y, p):
     
     '''
     z = v[0] + 1.0j*v[1]
-    z *= math.e**(1.0j*p*math.pi)
-    return np.imag(z)
+    z = z*math.e**(1.0j*p*math.pi)
+    z = z.apply(lambda x: np.imag(x))
+    return z
 
 #def detrend(v, x, y, p):
 #    '''
@@ -78,8 +85,11 @@ def real_detrend(v, x, y, p):
     
     '''
     z = v[0] + 1.0j*v[1]
-    z *= math.e**(1.0j*p*x*math.pi)
-    return np.real(z)
+    a = pd.Series(x.values,x.values)
+    a = math.e**(a.apply(lambda y: 1.0j*p*y*math.pi))
+    z = z*a
+    z = z.apply(lambda y: np.real(y))
+    return z
 
 def imag_detrend(v, x, y, p):
     '''
@@ -87,29 +97,46 @@ def imag_detrend(v, x, y, p):
     
     '''
     z = v[0] + 1.0j*v[1]
-    z *= math.e**(1.0j*p*x*math.pi)
-    return np.imag(z)
+    a = pd.Series(x.values, x.values)
+    a = math.e**(a.apply(lambda y: 1.0j*p*y*math.pi))
+    z = z*a
+    z = z.apply(lambda y: np.imag(y))
+    return z
 
 def phase_detrend(v, x, y, p):
     '''
     phase((v[0] + i v[1])*e^(i*p*x*pi))
     '''
     z = v[0] + 1.0j*v[1]
-    return np.angle(z*math.e**(1.0j*p*x*math.pi))
+    a = pd.Series(x.values,x.values)
+    a = math.e**(a.apply(lambda y: 1.0j*p*y*math.pi))
+    z = z*a
+    z = z.apply(lambda y: np.angle(y))
+    return z
     
 def phase_detrend_unwrap_reverse(v, x, y, p):
     '''
     unwrap_rev(phase((v[0] + i v[1])*e^(i*p*x*pi)))
     '''
-    z = v[0] + 1.0j*v[1]
-    return np.unwrap(np.angle(z*math.e**(1.0j*p*x*math.pi))[:,::-1], discont=np.pi, axis=1)[:,::-1]
+    z = v[0]+1.0j*v[1]
+    a = pd.Series(x.values,x.values)
+    a = math.e**(a.apply(lambda y: 1.0j*p*y*math.pi))
+    z = z*a
+    z = z.apply(lambda y: np.angle(y)).iloc[:,::-1]
+    z = pd.DataFrame(np.unwrap(z,discont=np.pi, axis=1), index=z.index, columns = z.columns).iloc[:,::-1]
+    return z
     
 def phase_detrend_unwrap(v, x, y, p):
     '''
     unwrap(phase((v[0] + i v[1])*e^(i*p*x*pi)))
     '''
     z = v[0] + 1.0j*v[1]
-    return np.unwrap(np.angle(z*math.e**(1.0j*p*x*math.pi)), discont=np.pi, axis=1)
+    a = pd.Series(x.values,x.values)
+    a = math.e**(a.apply(lambda y: 1.0j*p*y*math.pi))
+    z = z*a
+    z = z.apply(lambda y: np.angle(y))
+    z = pd.DataFrame(np.unwrap(z,discont=np.pi, axis=1), index=z.index, columns = z.columns)
+    return z
     
 def moving_average(v, x, y, p):
     '''
