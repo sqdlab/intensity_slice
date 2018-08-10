@@ -145,6 +145,7 @@ class MathPanel(wx.Panel):
         self.t_param.SetValue("0")
         self.button_reload = wx.Button(self, wx.ID_ANY, label="Reload Functions")
         self.button_fourier_transform = wx.Button(self, wx.ID_ANY, label = "Fourier Transform (FFT)")
+        self.button_copy_file_path = wx.Button(self, wx.ID_ANY, label = "Copy File Path")
         
         self.text = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY)
         
@@ -153,6 +154,8 @@ class MathPanel(wx.Panel):
         self.t_param.Bind(wx.EVT_TEXT_ENTER, self.on_text_param)
         self.button_reload.Bind(wx.EVT_BUTTON, self.on_reload)
         self.button_fourier_transform.Bind(wx.EVT_BUTTON, self.fourier_transform)
+        self.button_copy_file_path.Bind(wx.EVT_BUTTON, self.copy_file_path)
+        
         
         self._do_layout()
         
@@ -190,6 +193,7 @@ class MathPanel(wx.Panel):
                     border=5)
         sizer_v.Add(self.button_reload)
         sizer_v.Add(self.button_fourier_transform)
+        sizer_v.Add(self.button_copy_file_path)
         self.SetSizer(sizer_v)
 
     def _clear_functions(self):
@@ -221,6 +225,13 @@ class MathPanel(wx.Panel):
         self.cb_value.SetSelection(index)
         self.draw()
         
+    def copy_file_path(self, event):
+        # TODO: Copy the file directory + name to clipboard (needs to be changed to a button)
+        try:
+            pd.Series([self.frame.directory+"\\"+self.frame.filename]).to_clipboard(index=False)
+        except AttributeError:
+            print("No file is currently loaded.")
+    
     def fourier_transform(self, event):
         self.frame.left_panel.plot_window.fourier_plot()
 
@@ -233,16 +244,12 @@ class MathPanel(wx.Panel):
     def draw(self):
         # find the function that corresponds to the selection index
         value = self.cb_value.GetSelection()
-        print("value: " + str(value))
         number_of_values = self.cb_value.GetCount()
-        print("number of values: " + str(number_of_values))
         number_of_functions = len(self.data_functions)
-        print("number of functions: " + str(number_of_functions))
         
         # draw the value as is saved in the data file
         if value < number_of_values - number_of_functions:
             value_idx = -(number_of_values - number_of_functions - value)
-            print("value index : " + str(value_idx))
             self.frame.draw(self.frame.x_idx, self.frame.y_idx, value_idx,
                             recenter=False)
         
@@ -851,7 +858,7 @@ class PlotWindow(wx.Panel):
         
         # Fast fourier transforms the data along the x domain
         N = len(self.x)
-        T = 1/max(self.x)
+        T = 1.0/max(self.x)
         yf = np.fft.fft(xslice)
         xf = np.linspace(0,1.0/(2.0*T),N)
         
@@ -971,7 +978,8 @@ class MainFrame(wx.Frame):
         
         # This is to store labels for labelled data. It seems like bad 
         # practice to make them class variables, but this seems like 
-        # the easiest way to do it.
+        # the easiest way to do it. The problem is that a different class
+        # needs to access these variables.
         self.data_label_locs = None
         self.data_labels = None
 
@@ -1103,39 +1111,54 @@ class MainFrame(wx.Frame):
         file_dialog.Destroy()
         
     def get_coordinates_and_values(self, file_):
+        """
+        Store the information about coordinates and values contained in the comments at
+        the beginning of the file (name, type, extra information).
+        """
         coordinates = []
         values = []
         f = open(file_, "r")
         next_ = f.readline().split()
-        # for each of the header lines of the file
-        while next_[0] == "#":
-            # take the column name and type
-            if next_[1] == "Column":
-                colname = f.readline().split()[2]
-                coltype = f.readline().split()[2]
-                # add the information to a list of coordinates or values
-                if coltype == "coordinate":
-                    coordinates.append({'name':colname,'type':coltype})
-                elif coltype == "value":
-                    values.append({'name':colname,'type':coltype})
-                else:
-                    raise ValueError("Inputs should only be of type coordinate or value")                   
+        # Intruction to skip to the first "Column" line
+        next_ = [0,0]
+        while next_[1] != "Column":
             next_ = f.readline().split()
-        f.close()            
-        return coordinates, values
+        # for each of the header lines of the file (indicated by '#')
+        while next_[0] == "#":
+            if next_[1] == "Column":
+                d = {}
+                next_ = f.readline().split()
+                # Put all lines of information below "Column x:" into dictionary form
+                while next_[1] != "Column" and next_[0] == "#":
+                    d[str(next_[1][:-1])] = str(next_[2])
+                    next_ = f.readline().split()
+                if d["type"] == "coordinate":
+                    coordinates.append(d)
+                elif d["type"] == "value":
+                    values.append(d)
+                else:
+                    raise ValueError("Inputs should only be of type coordinate or value,"+
+                                     "indicated in the file header.")
+        f.close()
+        return coordinates, values                
+        
     
-    def get_coordinate_info(self, coordinates, data):
+    def get_coordinate_details(self, coordinates, data):
+        """
+        Get information about the size, start and end values, and type of each coordinate.
+        
+        Note that this assumes that at most one coordinate contains labelled data.
+        """
         label_to_index = {}
-        # extract information from the dataframe about the start and end values, and
-        # number of elements in each column
         for i in range(0, len(coordinates)):
             try:
                 coordinates[i]['start'] = np.float64(data[coordinates[i]['name']].min())
                 coordinates[i]['end'] = np.float64(data[coordinates[i]['name']].max())
-                # find the number of unique values if we're looking at the first column
+                # Find the number of unique values if we're looking at the first column
                 if i==0:
                     coordinates[i]['size'] = len(data[coordinates[i]['name']].unique())
-                # otherwise find the number of unique values of each coord in the first slice 
+                # Otherwise find the number of unique values of each coord in the first slice
+                # Used for finding the shape of the data
                 else:
                     coordinates[i]['size'] = len(data[coordinates[i]['name']].
                                loc[data[coordinates[i-1]['name']] == data[
@@ -1155,64 +1178,84 @@ class MainFrame(wx.Frame):
                 coordinates[i]['end'] = data[coordinates[i]['name']].max()
                 coordinates[i]['size'] = len(labels)
                 coordinates[i]['labels'] = True
-                
+        # Put '$' signs around the labels so matplotlib knows they are TeX commands
+        if self.data_labels != None:
+            for i in range(0, len(self.data_labels)):
+                self.data_labels[i] = '$'+self.data_labels[i]+'$'                
         return coordinates
         
-    def load_data(self, directory, file_name):
-        # TODO: Copy the file directory + name to clipboard (needs to be changed to a button)
-        pd.Series([directory+"\\"+file_name]).to_clipboard(index=False)
-        self.SetTitle(directory+"\\"+file_name)
+    def get_shape(self, coordinates, values):
+        """
+        Store information about the shape of the data (for slicing purposes).
         
-        file_ = types.StringType(os.path.join(directory, file_name))
+        The shape returned will be the same as the shape of an equivalent numpy ndarray,
+        where each coordinate is a dimension of the ndarray. The shape is used in the
+        program because it previously used numpy.ndarray instead of pandas.DataFrame to
+        store and manipulate data.
         
-        # Store the information contained in the first few lines in the file
-        coordinates, values = self.get_coordinates_and_values(file_)
-        
-        if len(coordinates) < 1:
-            raise RuntimeError('Data with less than 1 coordinate is currently '
-                               'not supported')
-        
-        names_ = [col['name'] for col in coordinates+values]
-        data = pd.read_csv(directory+"\\"+file_name,sep="\t", comment = '#',
-                           names=names_)
-
-        coordinates = self.get_coordinate_info(coordinates, data)        
-        
-        # Store information about the shape of the data for slicing purposes
+        The shape will be of the form:
+            (coord1_size, coord2_size,...,coordn_size, num_coords_and_values)
+        """
         size = len(coordinates)+1
         shape = [0]*(size)
         for i in range(0,size-1):
             shape[i]=long(coordinates[i]['size'])
         shape[size-1]=long(len(coordinates)+len(values))
         shape = tuple(shape)
+        return shape
+
+    def add_dummy_coordinate(self, shape, coordinates, data):
+        """
+        Add a dummy coordinate to a 1D array so that 2D slicing works.
+        
+        The dummy coordinate will be a row of 1's with header 'None' and will be prepended
+        to the dataframe.
+        """
+        coordinates = [dict(type='coordinate', name='None', size=1, start=1, labels=False)] + coordinates
+        self.shape = (1, shape[0], shape[1]+1L)
+        rows = len(data[data.columns[0]])
+        data['None'] = pd.Series(np.ones(rows))
+        columns = data.columns.tolist()
+        # Shuffle the 'None' Coordinate to the first column postion, so that it plots on
+        # the y-axis (for use with pandas.DataFrame.xs())
+        columns = [columns[0]] + columns[-1:] + columns[1:-1]
+        data = data[columns]
+        return coordinates, data
+    
+    def load_data(self, directory, file_name):
+        """
+        Load a file_name.dat file into a pandas DataFrame, and store relevant information 
+        about the data (coordinates, values, and shape). Initialise plotting.
+        """
+        
+        self.SetTitle(directory+"\\"+file_name)
+        file_ = types.StringType(os.path.join(directory, file_name))
+
+        coordinates, values = self.get_coordinates_and_values(file_)        
+        if len(coordinates) < 1:
+            raise RuntimeError('Data with less than 1 coordinate is currently '
+                               'not supported')        
+        data = pd.read_csv(directory+"\\"+file_name,sep="\t", comment = '#',
+                           names=[col['name'] for col in coordinates+values])
+        coordinates = self.get_coordinate_details(coordinates, data)
+        shape  = self.get_shape(coordinates, values)
         
         if len(coordinates) == 1:
-            # add dummy coordinate so that 2D slicing works
-            coordinates = [dict(type='coordinate', name='None', size=1, start=1, labels=False)] + coordinates
-            self.shape = (1, shape[0], shape[1]+1L)
-            rows = len(data[data.columns[0]])
-            data['None'] = pd.Series(np.ones(rows))
-            columns = data.columns.tolist()
-            columns = [columns[0]] + columns[-1:] + columns[1:-1]
-            data = data[columns]
-        
+            coordinates, data = self.add_dummy_coordinate(shape, coordinates, data)
+                
         self.coordinates = coordinates
         self.values = values
         self.shape = shape
         
-        self.data_frame = data.set_index([coord['name'] for coord in self.coordinates])        
+        self.data_frame = data.set_index([coord['name'] for coord in self.coordinates]) 
+        # A selection (aka slice) of the data corresponding to the shape:
+        # (coord1_value, coord2_value, ..., coordn_value, col_index)
         self.data_selection = [coord['start'] for coord in self.coordinates]+[1]
-        
-        # Put '$' signs around the labels so matplotlib knows they are TeX commands
-        if self.data_labels != None:
-            for i in range(0, len(self.data_labels)):
-                self.data_labels[i] = '$'+self.data_labels[i]+'$'
         
         self._set_axis_cb_choices()
         self._set_value_choices()
         self._set_coordinate_choices()
         
-
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
@@ -1220,12 +1263,34 @@ class MainFrame(wx.Frame):
                                recenter=True)
             
     def reload_data(self):
+        """
+        Reload the current data file so that newly-written data will be displayed.
         
+        """
         ###MIJ this needs to be via a greyed out button
         if self.filename == None:
             return
+
+        file_ = types.StringType(os.path.join(self.directory, self.filename))
+
+        coordinates, values = self.get_coordinates_and_values(file_)        
+        if len(coordinates) < 1:
+            raise RuntimeError('Data with less than 1 coordinate is currently '
+                               'not supported')        
+        data = pd.read_csv(file_,sep="\t", comment = '#',
+                           names=[col['name'] for col in coordinates+values])
+        coordinates = self.get_coordinate_details(coordinates, data)
+        shape  = self.get_shape(coordinates, values)
         
-        self.load_data(self.directory, self.filename)
+        if len(coordinates) == 1:
+            coordinates, data = self.add_dummy_coordinate(shape, coordinates, data)
+                
+        self.coordinates = coordinates
+        self.values = values
+        self.shape = shape
+        
+        self.data_frame = data.set_index([coord['name'] for coord in self.coordinates])
+
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
         else:
@@ -1233,6 +1298,11 @@ class MainFrame(wx.Frame):
                                recenter=False)
                       
     def draw(self, x_idx, y_idx, value, **kwargs):
+        """
+        Draws the slice of the given value at x_idx, y_idx, setting other coordinate 
+        values to whatever they are in the current data selection.
+        
+        """
 
         # Draw MainFrame object        
         
@@ -1247,6 +1317,7 @@ class MainFrame(wx.Frame):
         
         data_slice = self.get_data_slice(value)
         
+        
         if self.coordinates[x_idx]['labels'] == True:
             self.left_panel.plot_window.draw(data_slice.columns, data_slice.index,
                                              data_slice,labels = self.data_labels,
@@ -1258,8 +1329,13 @@ class MainFrame(wx.Frame):
         else:
             self.left_panel.plot_window.draw(data_slice.columns,data_slice.index,
                                              data_slice)
-        
+            
+    
     def draw_function(self, func, values, **kwargs):
+        """
+        Computes and displays the given function, on the currently selected slice.
+        
+        """
         self.value_idx = None
         
         self.value_func = {"function": func,
@@ -1271,14 +1347,19 @@ class MainFrame(wx.Frame):
         
         data_slices = [self.get_data_slice(-len(values) + i)
                        for i in value_indices]
-        computed_data = func([data_slices, self.get_coordinate(self.x_idx), self.get_coordinate(self.y_idx)])
-        
-        self.left_panel.plot_window.draw(
-            self.get_coordinate(self.x_idx),
-            self.get_coordinate(self.y_idx),
-            computed_data,
-            **kwargs
-            )
+        computed_data = func([data_slices, data_slices[0].columns, data_slices[0].index])
+
+        if self.coordinates[self.x_idx]['labels'] == True:
+            self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
+                                             computed_data,labels = self.data_labels,
+                                             labelled_axis = 0)
+        elif self.coordinates[self.y_idx]['labels'] == True:
+            self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
+                                             computed_data,labels = self.data_labels,
+                                             labelled_axis = 1)            
+        else:
+            self.left_panel.plot_window.draw(computed_data.columns,computed_data.index,
+                                             computed_data)
 
     def get_selection(self, axis_idx, value=None):
         selection = copy.copy(self.data_selection)
