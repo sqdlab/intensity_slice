@@ -19,6 +19,9 @@ import linecache
 import matplotlib
 matplotlib.use('WXAgg')
 
+# FOR TESTING
+import time
+
 from mpl_wxwidgets import Cursor
 from wx.lib.scrolledpanel import ScrolledPanel
 
@@ -233,7 +236,9 @@ class MathPanel(wx.Panel):
             print("No file is currently loaded.")
     
     def fourier_transform(self, event):
-        self.frame.left_panel.plot_window.fourier_plot()
+        values = [self.dl_values.GetItemText(i) for i 
+                  in range(self.dl_values.GetItemCount())]
+        self.frame.draw_fourier_function(values)
 
     def on_cb_value(self, event):
         self.draw()
@@ -847,23 +852,6 @@ class PlotWindow(wx.Panel):
         
         #self.repaint()
         #self.canvas.draw()
-        
-    def fourier_plot(self):
-        self.x_slice_plot.clear()
-        
-        if self.data.shape[0] < abs(self.y_idx):
-            self.y_idx = -1
-        
-        xslice = self.data.xs(self.data.index[self.y_idx],0)
-        
-        # Fast fourier transforms the data along the x domain
-        N = len(self.x)
-        T = 1.0/max(self.x)
-        yf = np.fft.fft(xslice)
-        xf = np.linspace(0,1.0/(2.0*T),N)
-        
-        self.x_slice_plot.plot(xf, 2.0/N * np.abs(yf))
-        self.repaint()
             
     def draw(self, x, y, data, recenter=True, labels = None, labelled_axis = None):
         
@@ -1211,10 +1199,10 @@ class MainFrame(wx.Frame):
         The dummy coordinate will be a row of 1's with header 'None' and will be prepended
         to the dataframe.
         """
-        coordinates = [dict(type='coordinate', name='None', size=1, start=1, labels=False)] + coordinates
+        coordinates = [dict(type='coordinate', name='Dummy coordinate', size=1, start=1, labels=False)] + coordinates
         self.shape = (1, shape[0], shape[1]+1L)
         rows = len(data[data.columns[0]])
-        data['None'] = pd.Series(np.ones(rows))
+        data['Dummy coordinate'] = pd.Series(np.ones(rows))
         columns = data.columns.tolist()
         # Shuffle the 'None' Coordinate to the first column postion, so that it plots on
         # the y-axis (for use with pandas.DataFrame.xs())
@@ -1255,7 +1243,7 @@ class MainFrame(wx.Frame):
         self._set_axis_cb_choices()
         self._set_value_choices()
         self._set_coordinate_choices()
-        
+
         if self.value_func is None:
             self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
         else:
@@ -1360,6 +1348,51 @@ class MainFrame(wx.Frame):
         else:
             self.left_panel.plot_window.draw(computed_data.columns,computed_data.index,
                                              computed_data)
+            
+    def draw_fourier_function(self, values):
+        """
+        Performs a fourier transform. If a function is currently selected, performs the 
+        function on the transformed data and then plots. Otherwise, plots the absolute 
+        value of each element.
+        
+        Argument should be given as values = ["value1name, value2name, ...]. The slices
+        corresponding to these values, slice_v1 and slice_v2, are found, and then the 
+        transform is calculated over slice_v1 + i*slice_v2.
+        
+        """
+        
+        value_names = [coord['name'] for coord in self.values]
+        value_indices = [value_names.index(value) for value in values]
+        
+        # Test if changing "for i in value_indices" to get only first 2 will break things
+        data_slices = [self.get_data_slice(-len(values) + i)
+                       for i in value_indices]
+        if len(values) ==1:
+            complex_data = data_slices[0]
+        else:
+            complex_data = data_slices[0] + 1.0j*data_slices[1]
+        
+        for y in complex_data.index:
+            complex_data.loc[y,:] = np.fft.fft(complex_data.loc[y,:])
+        xf = np.linspace(0,1.0/(2.0*np.amax(complex_data.columns.tolist())),len(complex_data.columns))
+        complex_data = [complex_data.apply(lambda z: np.real(z)),
+                        complex_data.apply(lambda z: np.imag(z))]
+
+        if self.value_func != None:
+            func = self.value_func['function']
+            computed_data = func([complex_data, xf, data_slices[0].index])
+        else:
+            computed_data = np.abs(complex_data[0]+1.0j*complex_data[1])
+        
+        if self.coordinates[self.y_idx]['labels'] == True:
+            self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
+                                             computed_data,labels = self.data_labels,
+                                             labelled_axis = 1)            
+        else:
+            self.left_panel.plot_window.draw(computed_data.columns,computed_data.index,
+                                             computed_data)
+
+
 
     def get_selection(self, axis_idx, value=None):
         selection = copy.copy(self.data_selection)
