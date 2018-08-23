@@ -1374,7 +1374,13 @@ class MainFrame(wx.Frame):
         
         for y in complex_data.index:
             complex_data.loc[y,:] = np.fft.fft(complex_data.loc[y,:])
-        xf = np.linspace(0,1.0/(2.0*np.amax(complex_data.columns.tolist())),len(complex_data.columns))
+        #delta f = 1/(tmax-tmin) (step frequency), fmax = 1/delta t (step time in time domain)
+        tmin = np.amin(complex_data.columns.tolist())
+        tmax = np.amax(complex_data.columns.tolist())
+        N = len(complex_data.columns)
+        tstep = float((tmax-tmin))/N
+        # calculate the frequency domain
+        xf = np.linspace(0,1.0/tstep,N)
         complex_data = [complex_data.apply(lambda z: np.real(z)),
                         complex_data.apply(lambda z: np.imag(z))]
 
@@ -1383,7 +1389,8 @@ class MainFrame(wx.Frame):
             computed_data = func([complex_data, xf, data_slices[0].index])
         else:
             computed_data = np.abs(complex_data[0]+1.0j*complex_data[1])
-        
+        # change the x-axis to the new frequency domain
+        computed_data.columns = xf
         if self.coordinates[self.y_idx]['labels'] == True:
             self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
                                              computed_data,labels = self.data_labels,
