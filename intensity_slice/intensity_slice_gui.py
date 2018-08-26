@@ -1576,5 +1576,5 @@ if __name__ == '__main__':
         directory, filename = os.path.split(sys.argv[1])
         app.frame1.directory = directory
         app.frame1.filename = filename
-        app.frame1.load_data(directory, filename)
+        wx.CallLater(0, app.frame1.load_data, directory, filename)
     app.MainLoop()
