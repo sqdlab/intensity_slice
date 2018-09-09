@@ -142,8 +142,9 @@ def moving_average(v, x, y, p):
     '''
     moving average of length p
     '''
-    p = max(1, min(v[0].shape[0], p))
+    p = max(1, min(v[0].shape[1], int(p)))
     mask = np.ones((p,))
-    w = 1./np.convolve(np.ones_like(v[0][0]), mask, mode='same')
-    z = [np.convolve(a, mask, mode='same') for a in v[0]]
-    return w*np.array(z)
+    w = 1./np.convolve(np.ones_like(v[0].iloc[0,:]), mask, mode='same')
+    for index, row in v[0].iterrows():
+        v[0].loc[index,:] = np.convolve(row, mask, mode='same')     
+    return w*v[0]
