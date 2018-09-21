@@ -168,9 +168,15 @@ class Cursor(object):
             
             self.pressed_flag = True
             
-            # grab a copy of the starting position in case we want to put it back
-            self.start_position = self.position
-                        
+            # grab a copy of the current position of the cursor in case we need to move it 
+            # back later (e.g. when the mouse is moved outside of the axes).
+            # this was previously:
+            # self.start_position = self.position
+            # however this meant that dragging the cursor off the edge of the screen 
+            # caused the cursor to "jump" back to its initial position, which was 
+            # inconvenient when trying to measure points at the edges of the plot.
+            self.previous_position = self.position
+            
             # prepare the image structures for fast move events
             self.set_animated()
 
@@ -336,7 +342,8 @@ class Cursor(object):
                 # Fake a release event
                 # and put the cursor back to where we picked it up
                 
-                self.position = self.start_position
+                self.position = self.previous_position
+                
                 self.set_position(self.position[0], self.position[1])              
                 self.unset_animated()        
 
@@ -358,6 +365,10 @@ class Cursor(object):
                 
                 # Set the position of the cross hair cursor depending on whether we'd
                 # selected either one or both lines.
+
+                # keep track of the previous position of the cursor, so that it can be
+                # moved back later if the cursor is moved off the edge of the plot.
+                self.previous_position = self.position
         
                 if self.move_direction == "XY":
                     self.position = (event.xdata, event.ydata)
