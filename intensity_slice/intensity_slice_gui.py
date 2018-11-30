@@ -595,6 +595,9 @@ class PlotWindow(wx.Panel):
         self.x = None
         self.y = None
         
+        #self.xlim = None
+        #self.ylim = None
+        
         self.image = None
         self.x_idx = -1
         self.y_idx = -1
@@ -853,7 +856,7 @@ class PlotWindow(wx.Panel):
         #self.repaint()
         #self.canvas.draw()
             
-    def draw(self, x, y, data, recenter=True, labels = None, labelled_axis = None):
+    def draw(self, x, y, data, recenter=True, labels = None, labelled_axis = None, keepLimits=False):
         
         ###DEBUG
         #print 'draw (1)'
@@ -863,6 +866,9 @@ class PlotWindow(wx.Panel):
         
         # The parameter data is retained for the data_cursor_handler
         
+        self.xlim = self.intensity_plot.get_xlim() 
+        self.ylim = self.intensity_plot.get_ylim() 
+               
         self.data = data
         self.x = x
         self.y = y
@@ -900,16 +906,26 @@ class PlotWindow(wx.Panel):
             
             self.intensity_plot.pcolormesh(px, py, data, )
 
-            self.intensity_plot.set_xlim(x[0], x.iloc[-1])
-            self.intensity_plot.set_ylim(y[0], y.iloc[-1])            
+            if keepLimits:
+                self.intensity_plot.set_xlim(self.xlim[0],self.xlim[1])
+                self.intensity_plot.set_ylim(self.ylim[0],self.ylim[1])
+                               
+            else:
+                self.intensity_plot.set_xlim(x[0], x.iloc[-1])
+                self.intensity_plot.set_ylim(y[0], y.iloc[-1])            
         else:
             px = np.append(x, x[-1]+deltas[0]) - deltas[0]/2.
             py = np.append(y, y[-1]+deltas[1]) - deltas[1]/2.
             
             self.intensity_plot.pcolormesh(px, py, data, )
 
-            self.intensity_plot.set_xlim(x[0], x[-1])
-            self.intensity_plot.set_ylim(y[0], y[-1])
+            if keepLimits:
+                self.intensity_plot.set_xlim(self.xlim[0],self.xlim[1])
+                self.intensity_plot.set_ylim(self.ylim[0],self.ylim[1])
+                                
+            else:
+                self.intensity_plot.set_xlim(x[0], x[-1])
+                self.intensity_plot.set_ylim(y[0], y[-1])
         
         #self.intensity_plot.imshow(data, interpolation='none',
                                    #aspect='auto', origin='lower',
@@ -1042,10 +1058,10 @@ class MainFrame(wx.Frame):
             self.right_panel.slider_panel.enable_slider(previous_axis_idx)
         
         if self.value_func is None:
-            self.draw(self.x_idx, self.y_idx, self.value_idx)
+            self.draw(self.x_idx, self.y_idx, self.value_idx, keepLimits=False)
         else:
             self.draw_function(self.value_func["function"],
-                               self.value_func["values"])
+                               self.value_func["values"], keepLimits=False)
         self.right_panel.slider_panel.Layout()
 
     def on_cb_x(self, event):
@@ -1245,10 +1261,10 @@ class MainFrame(wx.Frame):
         self._set_coordinate_choices()
 
         if self.value_func is None:
-            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True)
+            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=True,keepLimits = False)
         else:
             self.draw_function(self.value_func["function"], self.value_func["values"],
-                               recenter=True)
+                               recenter=True, keepLimits = False)
             
     def reload_data(self):
         """
@@ -1280,12 +1296,12 @@ class MainFrame(wx.Frame):
         self.data_frame = data.set_index([coord['name'] for coord in self.coordinates])
 
         if self.value_func is None:
-            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False)
+            self.draw(self.x_idx, self.y_idx, self.value_idx, recenter=False, keepLimits = False)
         else:
             self.draw_function(self.value_func["function"], self.value_func["values"],
-                               recenter=False)
+                               recenter=False, keepLimits = False)
                       
-    def draw(self, x_idx, y_idx, value, **kwargs):
+    def draw(self, x_idx, y_idx, value, keepLimits = True, **kwargs):
         """
         Draws the slice of the given value at x_idx, y_idx, setting other coordinate 
         values to whatever they are in the current data selection.
@@ -1309,14 +1325,14 @@ class MainFrame(wx.Frame):
         if self.coordinates[x_idx]['labels'] == True:
             self.left_panel.plot_window.draw(data_slice.columns, data_slice.index,
                                              data_slice,labels = self.data_labels,
-                                             labelled_axis = 0)
+                                             labelled_axis = 0, keepLimits=keepLimits)
         elif self.coordinates[y_idx]['labels'] == True:
             self.left_panel.plot_window.draw(data_slice.columns, data_slice.index,
                                              data_slice,labels = self.data_labels,
-                                             labelled_axis = 1)            
+                                             labelled_axis = 1, keepLimits=keepLimits)            
         else:
             self.left_panel.plot_window.draw(data_slice.columns,data_slice.index,
-                                             data_slice)
+                                             data_slice, keepLimits=keepLimits)
             
     
     def draw_function(self, func, values, **kwargs):
@@ -1340,14 +1356,14 @@ class MainFrame(wx.Frame):
         if self.coordinates[self.x_idx]['labels'] == True:
             self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
                                              computed_data,labels = self.data_labels,
-                                             labelled_axis = 0)
+                                             labelled_axis = 0, keepLimits=True)
         elif self.coordinates[self.y_idx]['labels'] == True:
             self.left_panel.plot_window.draw(computed_data.columns, computed_data.index,
                                              computed_data,labels = self.data_labels,
-                                             labelled_axis = 1)            
+                                             labelled_axis = 1, keepLimits=True)            
         else:
             self.left_panel.plot_window.draw(computed_data.columns,computed_data.index,
-                                             computed_data)
+                                             computed_data, keepLimits=True)
             
     def draw_fourier_function(self, values):
         """
