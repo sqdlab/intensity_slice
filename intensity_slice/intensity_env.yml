@@ -1,4 +1,4 @@
-name: intensity_slice
+name: intensity_slices
 channels:
   - defaults
 dependencies:
