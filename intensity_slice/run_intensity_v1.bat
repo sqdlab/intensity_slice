@@ -14,6 +14,7 @@
 ::After that you can use the bath file as default program to open ".dat" files. Replace the path "C:\Software\intensity_slice-master\intensity_slice\intensity_slice_gui.py" with the correpsonding path on your computer
 ::"%~1" is used to supply the name of the file even if there are spaces in the path
 
-call activate intensity_slice
-python.exe C:\Software\intensity_slice-master\intensity_slice\intensity_slice_gui.py "%~1"
+call "C:\ProgramData\Anaconda3\Scripts\activate.bat"
+call conda activate intensity_slices
+python.exe C:\Users\Experiment\Documents\Slices\intensity_slice\intensity_slice\intensity_slice_gui.py "%~1"
 pause
